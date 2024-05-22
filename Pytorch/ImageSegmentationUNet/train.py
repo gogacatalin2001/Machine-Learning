@@ -14,19 +14,21 @@ from utils import (
 )
 
 # Hyperparameters etc.
-LEARNING_RATE = 3e-5
+LEARNING_RATE = 1e-4
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 16
-NUM_EPOCHS = 75
+NUM_EPOCHS = 100
 NUM_WORKERS = 2
-IMAGE_HEIGHT = 512  # 1080 originally
-IMAGE_WIDTH = 512  # 1920 originally
+IMAGE_HEIGHT = 270  # 1080 originally
+IMAGE_WIDTH = 480  # 1920 originally
 PIN_MEMORY = True
-LOAD_MODEL = True
+LOAD_MODEL = False
 TRAIN_IMG_DIR = "E:/Development/Runway_Detection/runway_dataset/1920x1080/train"
 TRAIN_MASK_DIR = "E:/Development/Runway_Detection/runway_dataset/labels/areas/train_labels_1920x1080"
 VALIDATION_IMG_DIR = "E:/Development/Runway_Detection/runway_dataset/1920x1080/validation"
 VALIDATION_MASK_DIR = "E:/Development/Runway_Detection/runway_dataset/labels/areas/validation_labels_1920x1080"
+
+CHECKPOINT_NAME = "my_checkpoint.pth.tar"
 
 
 def train_fn(loader, model, optimizer, loss_fn, scaler):
@@ -53,12 +55,11 @@ def train_fn(loader, model, optimizer, loss_fn, scaler):
 
 def main():
     print("Running on: " + DEVICE)
+
+    # todo Do I really need these transforms? - DON'T KNOW WHAT THEY DO !!!!!
     train_transform = A.Compose(
         [
             A.Resize(height=IMAGE_HEIGHT, width=IMAGE_WIDTH),
-            A.Rotate(limit=35, p=1.0),
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.1),
             A.Normalize(
                 mean=[0.0, 0.0, 0.0],
                 std=[1.0, 1.0, 1.0],
@@ -98,23 +99,25 @@ def main():
     )
 
     if LOAD_MODEL:
-        load_checkpoint(torch.load("my_checkpoint.pth.tar"), model)
+        load_checkpoint(torch.load(CHECKPOINT_NAME), model)
 
-    check_accuracy(val_loader, model, device=DEVICE)
+    last_accuracy = check_accuracy(val_loader, model, device=DEVICE)
     scaler = torch.cuda.amp.GradScaler()
 
     for epoch in range(NUM_EPOCHS):
         train_fn(train_loader, model, optimizer, loss_fn, scaler)
 
-        # save model
-        checkpoint = {
-            "state_dict": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-        }
-        save_checkpoint(checkpoint)
-
         # check accuracy
-        check_accuracy(val_loader, model, device=DEVICE)
+        acc = check_accuracy(val_loader, model, device=DEVICE)
+
+        if acc > last_accuracy:
+            # save model
+            checkpoint = {
+                "state_dict": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+            }
+            save_checkpoint(checkpoint, filename=CHECKPOINT_NAME)
+            last_accuracy = acc
 
         # print some examples to a folder
         save_predictions_as_images(
